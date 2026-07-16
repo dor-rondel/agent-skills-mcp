@@ -1,0 +1,24 @@
+[project]
+name = "agent-skills"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.4.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "codespell>=2.4.3",
+    "mypy>=2.3.0",
+    "pylint>=4.0.6",
+    "pytest>=9.1.1",
+    "ruff>=0.15.21",
+]
+
+[tool.codespell]
+skip = "*.lock,.git,.venv,.mypy_cache,.ruff_cache,.pytest_cache"
