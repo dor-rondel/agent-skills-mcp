@@ -31,6 +31,8 @@ Clone the repository and install all dependencies:
 git clone https://github.com/dor-rondel/agent-skills.git
 cd agent-skills
 make install
+# Install the package in editable mode so fastmcp can resolve agent_skills_server
+uv pip install -e .
 ```
 
 ### Running the Server Locally
@@ -46,6 +48,36 @@ This command spins up the server and opens the MCP Inspector in your browser (us
 To run the server ready for an MCP client to communicate via standard I/O:
 ```bash
 uv run fastmcp run src/agent_skills_server/server.py
+```
+
+#### Run in Persistent SSE Mode
+To run the server as a persistent HTTP/SSE daemon (e.g. for remote/SSE connections):
+```bash
+uv run fastmcp run --transport sse --port 8000 src/agent_skills_server/server.py
+```
+
+### 🧠 Skill Embeddings & Semantic Search
+This server uses a local **ChromaDB** vector store database to support natural-language similarity search over the agent skill library. 
+
+* **Vector Store Directory**: `.chroma/` (created automatically at the repository root).
+* **Embedding Model**: `all-MiniLM-L6-v2` (runs entirely locally on CPU, downloading on first run).
+* **Automatic Indexing**: The collection is lazily initialized/updated whenever you query the search tool or when the count of `SKILL.md` files changes.
+
+#### Pre-generating/Testing Embeddings & Tools
+You can verify the tools are working and pre-generate the local skill embeddings by invoking them via the FastMCP CLI:
+```bash
+# 1. Test listing all skills
+uv run fastmcp call src/agent_skills_server/server.py list_skills
+
+# 2. Test semantic search (downloads the embedding model and builds database on first run)
+uv run fastmcp call src/agent_skills_server/server.py search_skills query="Docker container management"
+```
+
+You can also run these calls directly against a running SSE server instance:
+```bash
+# Verify tools on a live SSE server running at http://127.0.0.1:8000/sse
+uv run fastmcp call http://127.0.0.1:8000/sse list_skills
+uv run fastmcp call http://127.0.0.1:8000/sse search_skills query="EVM deploy verify"
 ```
 
 ---

@@ -1,122 +1,111 @@
-"""FastMCP server for exposing agent skills."""
+"""FastMCP server for exposing agent skills as MCP tools and resources."""
 
-import re
 from pathlib import Path
+
 from fastmcp import FastMCP
 
+from agent_skills_server.indexer import (
+    get_or_create_collection,
+    search_skills_in_collection,
+)
+from agent_skills_server.skills import (
+    discover_skills,
+    get_resources_dir,
+    parse_frontmatter,
+)
+
 mcp = FastMCP("agent-skills")
-
-
-def parse_frontmatter(content: str) -> dict[str, str]:
-    """Parse YAML frontmatter from a markdown string.
-
-    Args:
-        content: The content of the markdown file.
-
-    Returns:
-        A dictionary containing parsed metadata.
-    """
-    metadata = {}
-    # Find frontmatter between the first two --- lines
-    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-    if match:
-        frontmatter_text = match.group(1)
-        for line in frontmatter_text.splitlines():
-            if ":" in line:
-                key, val = line.split(":", 1)
-                metadata[key.strip()] = val.strip()
-    return metadata
-
-
-def discover_skills(base_dir: str = "resources") -> list[dict[str, str]]:
-    """Scan the base directory for SKILL.md files and parse their metadata.
-
-    Args:
-        base_dir: Directory to scan for skills.
-
-    Returns:
-        A list of dictionaries with skill metadata.
-    """
-    skills: list[dict[str, str]] = []
-    base_path = Path(base_dir)
-    if not base_path.exists():
-        return skills
-
-    # Recursively find all SKILL.md files
-    for skill_file in base_path.glob("**/SKILL.md"):
-        # Rel path relative to base_dir, e.g. langgraph/langgraph-project-init/SKILL.md
-        rel_path = skill_file.relative_to(base_path)
-        parts = rel_path.parts
-        if len(parts) >= 3:
-            category = parts[0]
-            skill_name = parts[1]
-            try:
-                content = skill_file.read_text(encoding="utf-8")
-                metadata = parse_frontmatter(content)
-            except Exception:  # pylint: disable=broad-except
-                metadata = {}
-
-            skills.append(
-                {
-                    "name": metadata.get("name", skill_name),
-                    "description": metadata.get(
-                        "description", "No description provided."
-                    ),
-                    "category": category,
-                    "skill_name": skill_name,
-                    "path": str(skill_file),
-                }
-            )
-    # Sort skills by category and name for consistency
-    skills.sort(key=lambda x: (x["category"], x["name"]))
-    return skills
 
 
 @mcp.tool()
 def list_skills() -> list[dict[str, str]]:
     """List all available agent skills and their metadata.
 
+    Scans the ``resources/`` directory for ``SKILL.md`` files and returns
+    parsed metadata for every discovered skill. Use this tool to orient
+    yourself on what skills exist before fetching their content directly.
+
     Returns:
-        A list of dictionaries, each containing:
-            - name: The human-readable name of the skill.
-            - description: The description of what the skill does.
-            - category: The category (e.g. solidity, langgraph).
-            - skill_name: The directory identifier of the skill.
-            - path: The path to the skill markdown file.
+        A sorted list of skill metadata dictionaries, each containing:
+
+            - ``name``: Human-readable name of the skill.
+            - ``description``: Short description of what the skill does.
+            - ``category``: Category directory (e.g., ``solidity``,
+              ``langgraph``).
+            - ``skill_name``: Directory identifier of the skill.
+            - ``path``: Absolute path to the SKILL.md file.
     """
-    current_file_path = Path(__file__).resolve()
-    repo_root = current_file_path.parent.parent.parent
-    resources_dir = repo_root / "resources"
-    return discover_skills(str(resources_dir))
+    return discover_skills(str(get_resources_dir()))
+
+
+@mcp.tool()
+def search_skills(query: str, n_results: int = 3) -> list[dict[str, str]]:
+    """Search for skills semantically similar to a natural-language query.
+
+    Uses a local ChromaDB vector store with ``all-MiniLM-L6-v2`` sentence
+    embeddings to find skills whose content best matches the intent of the
+    query. The index is built lazily on first call and refreshed automatically
+    when the number of skill files changes.
+
+    Prefer this tool over ``list_skills`` when you have a specific question or
+    task and want the most relevant skill without scanning all 13+ entries.
+
+    Args:
+        query: A natural-language description of what you are looking for.
+            Example: ``"deploy a smart contract to a testnet and verify it"``
+        n_results: Maximum number of ranked results to return. Defaults to 3.
+
+    Returns:
+        A ranked list of matching skill dictionaries (best match first), each
+        containing:
+
+            - ``name``: Human-readable skill name.
+            - ``category``: Skill category.
+            - ``skill_name``: Directory identifier of the skill.
+            - ``description``: Short description of the skill.
+            - ``distance``: Cosine distance score (lower = more similar).
+    """
+    collection = get_or_create_collection()
+    return search_skills_in_collection(collection, query, n_results)
 
 
 @mcp.resource("skills://{category}/{skill_name}")
 def get_skill(category: str, skill_name: str) -> str:
-    """Get the content of a specific skill by category and skill name.
+    """Get the full markdown content of a specific skill.
 
     Args:
-        category: The category of the skill (e.g., solidity, langgraph).
-        skill_name: The directory name of the skill (e.g., foundry-project-init).
+        category: The category of the skill (e.g., ``solidity``,
+            ``langgraph``).
+        skill_name: The directory name of the skill (e.g.,
+            ``foundry-project-init``).
 
     Returns:
-        The markdown content of the skill file.
+        The full markdown content of the SKILL.md file.
 
     Raises:
-        ValueError: If the skill does not exist or access is invalid.
+        ValueError: If the skill does not exist or the path is invalid.
     """
-    # Normalize category and skill_name to prevent directory traversal
+    # Normalise inputs to prevent directory traversal attacks
     category_name = Path(category).name
     skill_dir_name = Path(skill_name).name
 
-    current_file_path = Path(__file__).resolve()
-    repo_root = current_file_path.parent.parent.parent
-    skill_file = repo_root / "resources" / category_name / skill_dir_name / "SKILL.md"
-
+    skill_file = get_resources_dir() / category_name / skill_dir_name / "SKILL.md"
     if not skill_file.exists():
         raise ValueError(f"Skill not found: {category}/{skill_name}")
 
     return skill_file.read_text(encoding="utf-8")
 
+
+# Re-export helpers so existing tests that import from server still work
+__all__ = [
+    "mcp",
+    "list_skills",
+    "search_skills",
+    "get_skill",
+    # Helpers surfaced for testing convenience
+    "discover_skills",
+    "parse_frontmatter",
+]
 
 if __name__ == "__main__":
     mcp.run()
