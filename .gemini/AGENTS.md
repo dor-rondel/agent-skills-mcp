@@ -47,6 +47,14 @@ To ensure that the codebase remains clean, maintainable, and passes all local an
 *   Ensure that code comments, docstrings, variable names, and resource text do not contain spelling errors.
 *   Running `make spell` will run `codespell` to catch errors. Configure ignored patterns/words in `pyproject.toml` under `[tool.codespell]` if necessary.
 
+### 5. Vector Store & Local Embeddings
+*   Semantic search relies on a local ChromaDB collection persisted in the `.chroma/` directory at the repository root.
+*   Embeddings are built using the `all-MiniLM-L6-v2` model running entirely locally on CPU.
+*   The index is built lazily during search queries. If you modify any `SKILL.md` documents, the server automatically updates the index. To pre-build or verify the index, trigger a dummy search query via `fastmcp call`.
+
+### 6. Editable Package Installation
+*   Always ensure the project package is installed in editable mode (`uv pip install -e .`) in the development environment. This ensures that the FastMCP server launcher and external tools can successfully resolve the `agent_skills_server` package without throwing a `ModuleNotFoundError`.
+
 ---
 
 ## 📁 Repository Structure
@@ -54,3 +62,4 @@ To ensure that the codebase remains clean, maintainable, and passes all local an
 *   `src/agent_skills_server/`: Server source code.
 *   `tests/`: Test suite.
 *   `resources/`: All skill markdown files, organized by category (e.g., `resources/langgraph/`, `resources/frontend/`).
+*   `.chroma/`: Local ChromaDB vector database directory containing the generated embeddings.
