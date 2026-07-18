@@ -2,6 +2,9 @@
 name = "agent-skills"
 version = "0.1.0"
 description = "Add your description here"
+authors = [
+    { name = "Dor Rondel", email = "dor.rondel@proton.me" },
+]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
